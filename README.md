@@ -1,31 +1,32 @@
 # 听译 Lite
 
+听译 Lite 是一个**仅限 Windows 本机**的说话人转写工具。它在运行它的这台机器上采集系统播放声（WASAPI render loopback）或 Windows Live Captions，用常驻的本地 ASR runtime 离线识别（Moonshine 流式英文，或 FunASR Paraformer 2-pass 中文），把字幕、音频分块和同步状态保存为追加式本地 JSONL，对外提供本地 Web UI 和 SSE 流，并且只在显式请求时把完成的会话推送到自建 Memos 实例。没有配置出站目标时，任何内容都不会离开本机。
+
 听译 Lite 是轻量数据端。它只负责创建听译任务、实时字幕与音频采集、本地可靠存储、普通录音回放和同步 outbox；教材、复习题、质检流程和其他学习内容由上传后的独立服务负责。
 
-## English summary
+## 目录
 
-Tingyi Lite is a Windows-only local speaker-transcription tool. It captures the system playback
-audio (WASAPI render loopback) or Windows Live Captions on the machine that runs it, transcribes
-offline with a resident native ASR runtime (Moonshine streaming English or FunASR Paraformer 2-pass
-Chinese), stores captions, audio chunks and sync state as append-only local JSONL, serves a local
-Web UI plus an SSE stream, and can optionally push a finished session to a self-hosted Memos
-instance on explicit request. Nothing leaves the machine unless you configure an outbound target.
+- [它是什么](#它是什么)
+- [产品边界](#产品边界)
+- [功能与现状](#功能与现状)
+- [快速开始](#快速开始)
+- [便携包与静态 Web](#便携包与静态-web)
+- [获取本地 ASR runtime](#获取本地-asr-runtime)
+- [本地 ASR 工作原理](#本地-asr-工作原理)
+- [配置](#配置)
+- [会话、录音与幂等音频块](#会话录音与幂等音频块)
+- [同步协议与云端服务](#同步协议与云端服务)
+- [叠层与系统字幕](#叠层与系统字幕)
+- [数据维护](#数据维护)
+- [架构](#架构)
+- [许可证](#许可证)
 
-- **Platform: Windows x64 only.** The capture helpers are self-contained .NET hosts built on WASAPI
-  and UI Automation; there is no Linux or macOS path, and the portable package ships win-x64 ASR
-  runtimes. Other platforms are not "broken", they are unsupported.
-- **Runtime payloads are not in this repository.** The ~116 MB Moonshine runtime and the ~741 MB
-  FunASR Chinese runtime are release inputs (each described by a strict `runtime-manifest.json` with
-  per-file SHA-256). Download them from the release assets or build them with the `scripts/*.ps1`
-  pipelines, then place them under `runtime/`. Cases that need a real runtime skip themselves when
-  it is absent, so a clean checkout still passes the suite.
-- **Memos is optional.** Without it configured, the app is fully local. See
-  [Memos 上报](#memos-上报可选集成) for the address requirements: HTTPS anywhere, plain HTTP only on
-  loopback or Tailscale/CGNAT addresses unless you opt in explicitly.
-- **License: MIT** (see `LICENSE`). Third-party notices for the runtimes live in `third_party/` and
-  next to each runtime.
+## 它是什么
 
-The rest of this document is written in Chinese and is the authoritative description of behaviour.
+- **平台：仅 Windows x64。** 采集 helper 是基于 WASAPI 与 UI Automation 的自包含 .NET host；仓库里没有 Linux 或 macOS 路径，便携包也只带 win-x64 的 ASR runtime。其它平台不是「坏了」，而是不受支持。
+- **runtime 载荷不在本仓库。** 约 116 MB 的 Moonshine runtime 和约 741 MB 的 FunASR 中文 runtime 属于发布输入，各自由一个严格的 `runtime-manifest.json` 逐文件 SHA-256 描述。从 release 资产下载，或用 `scripts/*.ps1` 流水线自行构建，然后放到 `runtime/` 下。依赖真实 runtime 的用例在缺载荷时会自动跳过，因此干净 checkout 的测试仍然是绿的。
+- **Memos 是可选集成。** 不配置它时应用完全本地可用。地址要求见 [Memos 上报](#memos-上报可选集成)：HTTPS 任意地址可用，明文 HTTP 只允许 loopback 或 Tailscale/CGNAT 地址，除非显式放开。
+- **许可证：MIT**（见 `LICENSE`）。runtime 的第三方声明在 `third_party/` 和每个 runtime 目录旁。
 
 ## 产品边界
 
@@ -36,9 +37,9 @@ The rest of this document is written in Chinese and is the authoritative descrip
 - Web 实时页、Web overlay 和 Windows native overlay 共用同一份状态快照与 SSE 事件流。
 - mock 不进入产品路径；主服务不内联旧数据迁移、兼容分支或未配置来源的兜底。
 
-## 当前第一版
+## 功能与现状
 
-已经落地：
+### 已经落地
 
 - `Caption Core`：`Session / Source / CaptionSegment / AudioChunk / Translation / SyncOutboxItem` 数据模型；会话显式记录 `captureMode`，来源状态区分 `starting / recording / stopped / failed`。
 - 字幕 normalizer：轻量处理换行、空白和标点间距。
@@ -67,7 +68,7 @@ The rest of this document is written in Chinese and is the authoritative descrip
 - 本地 ASR 系统音频链路：本机默认播放设备通过 WASAPI render loopback 连续下混并重采样为 mono PCM16 WAV，按所选引擎的采样率顺序提交。
 - 便携包脚本：构建 Web、Node 服务 bundle、系统字幕/overlay/WASAPI 三个自包含 .NET host 和两个本地 ASR runtime，系统字幕自检、Moonshine smoke 与真实 SAPI 中文 Paraformer smoke 通过后生成闭集 `package-manifest.json`；包内同时提供 Node.js，不依赖用户环境。
 
-未伪装完成：
+### 未伪装完成
 
 - Windows Live Captions helper 的托盘引导、权限诊断和多语言细节尚未产品化。
 - Native overlay 的托盘、全局热键、窗口位置保存和安装包尚未产品化。
@@ -76,14 +77,16 @@ The rest of this document is written in Chinese and is the authoritative descrip
 - 云端 receiver 仍是单进程 JSONL 存储，已串行化同进程写入；多实例/多租户生产部署应迁到 SQLite/Postgres。
 - 局域网浏览器麦克风只能采集浏览器获得的输入设备，不能采集其他 App 的系统播放音频；本地 ASR 的系统播放声采集只在运行 Lite 服务的 Windows 主机上执行。
 
-商用前强制项：
+### 商用前强制项
 
 - 局域网开放时必须设置 `TINGYI_LOCAL_TOKEN`，手机访问使用 `https://<host>:5177/?token=<token>` 配对。
 - `npm run cloud:sync` 默认必须设置 `TINGYI_SYNC_TOKEN`，并只通过 HTTPS 反代暴露；无 token 仅允许设置 `TINGYI_ALLOW_INSECURE_CLOUD=1` 做本机开发。
 - 云端数据需要备份/恢复策略、音频保留周期、agent 写回审计和单用户/多租户边界。
 - 多实例 receiver 或多 agent 并发写入前，必须把 JSONL 存储替换成 SQLite/Postgres 或等价事务存储。
 
-## 运行
+## 快速开始
+
+### 开发态一键启动
 
 ```powershell
 npm install
@@ -92,6 +95,8 @@ npm install
 
 根目录 `start-dev.cmd` 与 `npm run start:lite` 等价，会把命令行参数原样转交给 PowerShell 7 启动脚本。启动前会关闭同一仓库上一次遗留在 API/Web 端口上的开发进程；如果端口属于其他程序则不会终止该程序，而是明确报告端口冲突。随后它会编译系统字幕 helper，并打开两个可见 PowerShell 窗口：一个运行本地 API，一个运行 Web 前端；返回成功前会等待 API 健康检查和 Web 首页都通过，然后用系统默认浏览器打开 Web 页，自动化或手动抑制浏览器时传 `-NoBrowser`。全新数据目录会在 `device-id.txt.lock` 的跨进程独占区内，通过随机临时文件和原子 rename 生成稳定的 `device-id.txt`，后续启动严格复用；进程崩溃不会留下半写的最终身份文件。默认访问 `http://127.0.0.1:5177/`，叠层页是 `http://127.0.0.1:5177/overlay`。
 
+### 先用 demo 字幕验证 UI / SSE / outbox
+
 如果当前 Windows 没有 Live Captions 组件，或者只是想先验证 UI / SSE / outbox 链路，可以显式启用 demo 字幕 helper：
 
 ```powershell
@@ -99,6 +104,8 @@ npm run start:lite -- -DemoCaptions
 ```
 
 `-DemoCaptions` 只用于本地联调；默认产品路径是 `local-asr` + `moonshine-tiny-en`，系统字幕 helper 可用时才允许用户主动切换。服务默认扫描 `runtime/` 下每个带 `runtime-manifest.json` 的引擎目录；也可把 `TINGYI_LOCAL_ASR_RUNTIME_DIRS` 设为 runtime 目录的 JSON 字符串数组。新增模型只需放入一个自描述目录。任一路径显式配置后无效都会使服务快速失败，不会静默换模型。
+
+### 手动启动
 
 手动启动仍然可用，但 API 命令会持续占用当前终端；请分别打开两个可见的 PowerShell 7 窗口：
 
@@ -113,14 +120,9 @@ npm run server
 npm run dev
 ```
 
-每台设备必须使用不同且稳定的 `TINGYI_DEVICE_ID`；主服务不再使用共享的 `local-device` 默认值。已有 JSONL 数据若尚无 `device-id.txt`，先只读检查迁移计划，再显式应用：
+每台设备必须使用不同且稳定的 `TINGYI_DEVICE_ID`；主服务不再使用共享的 `local-device` 默认值。已有 JSONL 数据若尚无 `device-id.txt`，见[数据维护](#数据维护)里的设备身份迁移步骤。
 
-```powershell
-npm run data:migrate:device-id -- -Root data
-npm run data:migrate:device-id -- -Root data -Apply
-```
-
-迁移器只在现有 `session.started` 与 outbox 全部指向同一个合法且非保留 deviceId 时写入新身份文件；多值、非法 JSON 或身份冲突会直接失败，不改写 event/outbox。旧默认值 `local-device` 无法证明设备唯一性，因此明确拒绝原地改名；预发布数据应先备份，再外部重置数据目录。普通启动器不会替已有时间线猜测或写入身份。
+### 局域网访问与手机录音
 
 默认 `npm run server` 只监听 `127.0.0.1`，`npm run dev` 也只开放本机前端。需要同一局域网手机访问时，可以用启动脚本生成/复用本地配对 token：
 
@@ -144,7 +146,7 @@ npm run dev:lan
 
 打开 Vite 输出的局域网地址，并用 `?token=change-me-local` 完成配对。iOS 录音需要安全上下文，生产形态应使用 HTTPS/PWA 或原生 companion。Web 录音端会申请屏幕唤醒锁；每个 MediaRecorder chunk 会先以稳定 ID 写入 IndexedDB，再通过幂等 PUT 顺序上传。网络或 token 错误连续失败时队列会暂停并显示 pending，刷新页面不会把 IndexedDB 中的 job 当成已上传，用户需要回到同一浏览器、同一 origin 后显式重试。
 
-局域网 HTTPS 前端：
+### 局域网 HTTPS 前端
 
 ```powershell
 $env:TINGYI_LOCAL_TOKEN="change-me-local"
@@ -164,23 +166,6 @@ npm run dev:https
 
 HTTPS 只作用在 Vite 前端层，`/api` 仍代理到本地 Lite 服务。`dev:lan` 和 `dev:https` 缺少 `TINGYI_LOCAL_TOKEN` 会拒绝启动；仅本机临时调试可显式设置 `TINGYI_ALLOW_INSECURE_LAN=1`。iPhone/Safari 访问局域网地址录音时，证书需要被设备信任，否则浏览器仍不会开放麦克风权限。移动端录音必须保持页面前台可见；切后台、锁屏或系统打断仍可能让浏览器暂停采集。
 
-## captureMode 数据迁移
-
-当前 event schema 要求每个 `session.started.session` 都显式包含 `captureMode: "captions" | "recording-only"`。主服务不会在读取旧 JSONL 时猜测、补字段或重算 outbox hash；旧数据缺少该字段会被严格校验拒绝。先做 dry-run：
-
-```powershell
-npm run data:migrate:capture-mode -- --root data
-```
-
-确认报告后再显式 apply；备份目录必须位于数据目录外且尚不存在：
-
-```powershell
-npm run data:migrate:capture-mode -- --root data --apply --backup artifacts/migrations/capture-mode-20260712
-npm run data:doctor -- --kind local --root data
-```
-
-迁移器只处理 `events.jsonl` 和 `outbox.jsonl`：只有 `browser-mic` 来源的会话推断为 `recording-only`，出现任一字幕来源的会话推断为 `captions`；随后同步改写内嵌 outbox event 和 `contentHash`。它会先验证迁移前 hash 关系和迁移后 schema，再写回 UTF-8 JSONL，并把原文件与 `migration-result.json` 放入备份目录。无法根据 `source.attached` 明确推断时会失败，不会兜底成默认值。
-
 ## 便携包与静态 Web
 
 生成 Windows 便携目录：
@@ -189,138 +174,11 @@ npm run data:doctor -- --kind local --root data
 npm run package:lite
 ```
 
-默认输出为 `artifacts/portable/tingyi-lite`，目标目录必须为空，所有 tracked 源码改动必须先提交；任何未被 ignore 的未跟踪文件都会阻断打包。**先决条件：两个本地 ASR runtime 必须已就位**（见上文「获取本地 ASR runtime」）——打包会复制并冒烟它们，缺任一个都会在复制阶段失败。打包脚本每次运行完整测试、Web/Node/.NET 构建、系统字幕自检、Moonshine 两层 smoke 和真实 SAPI 中文 Paraformer smoke，然后复制两份严格校验的本地 ASR runtime、包内 Node.js 和三个自包含 native host。schema v2 `package-manifest.json` 记录当前 Git revision 并覆盖全部只读交付文件。候选包依次通过包内 `verify.ps1` 和真实启动 smoke 后才原子发布；缺失、篡改、清单外文件、reparse point、源码漂移或 runtime 冒烟失败都会阻断。`data`、`.env*`、本地设置/密钥、缓存、`test.mp3`、`test.mp4`、`.runs` 和 `.codegraph` 明确禁止进入包。
+默认输出为 `artifacts/portable/tingyi-lite`，目标目录必须为空，所有 tracked 源码改动必须先提交；任何未被 ignore 的未跟踪文件都会阻断打包。**先决条件：两个本地 ASR runtime 必须已就位**（见下文[获取本地 ASR runtime](#获取本地-asr-runtime)）——打包会复制并冒烟它们，缺任一个都会在复制阶段失败。打包脚本每次运行完整测试、Web/Node/.NET 构建、系统字幕自检、Moonshine 两层 smoke 和真实 SAPI 中文 Paraformer smoke，然后复制两份严格校验的本地 ASR runtime、包内 Node.js 和三个自包含 native host。schema v2 `package-manifest.json` 记录当前 Git revision 并覆盖全部只读交付文件。候选包依次通过包内 `verify.ps1` 和真实启动 smoke 后才原子发布；缺失、篡改、清单外文件、reparse point、源码漂移或 runtime 冒烟失败都会阻断。`data`、`.env*`、本地设置/密钥、缓存、`test.mp3`、`test.mp4`、`.runs` 和 `.codegraph` 明确禁止进入包。
 
 已有未运行的便携包可在源码仓库运行 `npm run package:verify`，也可在包目录独立运行 `pwsh.exe -NoLogo -NoProfile -File .\verify.ps1`；两种默认严格模式都会拒绝任何 `data/`，用于证明发布物不含本地数据、设置或密钥。首次启动生成 `data/` 后，只读复核已运行目录必须显式运行 `pwsh.exe -NoLogo -NoProfile -File .\verify.ps1 -AllowMutableData`，此时仍严格校验全部产品文件，但跳过可变用户区。源码仓库的 `npm run package:smoke` 始终走严格模式，从包本身启动一个可见的临时服务窗口并在独立临时数据目录完成运行时验收，结束后自动关闭该窗口并删除测试数据。
 
 便携目录只要求 Windows x64；Node.js、.NET 和两个 ASR runtime 都随包提供。最简单的启动方式是在包目录运行 `.\start.cmd`，不需要 PowerShell、Python、模型目录或端口配置。启动器在当前可见窗口运行同一个 Lite 服务，并在 `http://127.0.0.1:8787/` 提供 API 与静态 Web；加 `-Overlay` 可同时启动 native overlay，自动化验收时可加 `-NoBrowser` 只抑制打开页面。启动前会明确拒绝不支持的平台、缺失文件和已占用端口。首次启动会在包内 `data/` 创建稳定设备身份；同一真实数据目录只允许一个 Lite/Cloud 进程持有，进程崩溃后内核锁自动释放。启动器会验证 `/api/health` 的产品、实例、设备和数据目录；失败会回收本次启动的服务。设置 `TINGYI_LOCAL_TOKEN` 时，首次页面 URL 会携带经过 URL 编码的配对 query。便携包自身不提供 TLS，非 loopback HTTP 页面不能录音；局域网录音必须放在受信任 TLS 反向代理后，或使用源码仓库的 `dev:https` 流程。
-
-云端同步接收器：
-
-```powershell
-$env:TINGYI_CLOUD_DATA_ROOT="D:\tingyi-cloud-data"
-$env:TINGYI_CLOUD_PORT="8790"
-$env:TINGYI_SYNC_TOKEN="change-me"
-$env:TINGYI_CLOUD_TENANT_ID="personal"
-npm run cloud:sync
-```
-
-`cloud:sync` 是面向远端/局域网的入口。没有 `TINGYI_SYNC_TOKEN` 时会拒绝启动；只有本机临时开发可显式设置 `TINGYI_ALLOW_INSECURE_CLOUD=1`。设置 `TINGYI_CLOUD_TENANT_ID` 后，所有云端请求还必须带匹配的 `x-tingyi-tenant-id`。
-
-云端 receiver 本机 smoke：
-
-```powershell
-$env:TINGYI_SYNC_TOKEN="change-me"
-$env:TINGYI_CLOUD_TENANT_ID="personal"
-npm run cloud:smoke
-```
-
-`cloud:smoke` 会临时启动 Lite 和 cloud receiver，验证事件同步、音频 artifact 上传/读取、`learning-bundle.audioArtifacts`、baseline learning material 和 external-agent 写回。它不启动持久服务，不需要公网入口。
-
-远端 receiver 验收 smoke：
-
-```powershell
-$env:TINGYI_DEVICE_ID="device_choose-a-stable-unique-id"
-$env:TINGYI_SYNC_ENDPOINT="https://your-domain.example/events"
-$env:TINGYI_SYNC_TOKEN="change-me"
-$env:TINGYI_SYNC_TENANT_ID="personal"
-npm run cloud:remote-smoke
-```
-
-`cloud:remote-smoke` 会启动一个临时本地 Lite，把一条测试会话、来源和字幕同步到远端 receiver，再验证远端 `learning-bundle`、`audit` 和 external-agent runner 写回。它会在远端留下 `Remote cloud smoke` 测试会话，用于部署后验收；不要把它当只读探测。
-
-数据目录备份：
-
-```powershell
-npm run data:backup -- --source data --out artifacts/backups/local-data-20260704
-npm run data:backup:verify -- --backup artifacts/backups/local-data-20260704
-npm run data:backup:restore -- --backup artifacts/backups/local-data-20260704 --target D:\tingyi-lite-restore-data
-npm run data:doctor -- --kind local --root data
-```
-
-同一个命令也可用于云端数据目录：
-
-```powershell
-npm run data:backup -- --source D:\tingyi-cloud-data --out artifacts/backups/cloud-data-20260704
-npm run data:doctor -- --kind cloud --root D:\tingyi-cloud-data
-npm run cloud:audio-retention -- --root D:\tingyi-cloud-data --older-than-days 30
-npm run cloud:audio-retention -- --root D:\tingyi-cloud-data --older-than-days 30 --apply
-```
-
-备份包由 `backup-manifest.json` 和 `files/` 组成。manifest 记录每个文件的相对路径、`byteLength`、`sha256` 和整体 `manifestHash`；`verify` 会拒绝缺失、篡改或多出的文件。`restore` 只写入空目录，不覆盖现有数据；恢复后仍应启动 Lite/cloud receiver 走正常 JSONL schema 校验。这个备份包是 JSONL 阶段的离线恢复手段，不替代后续 SQLite/Postgres 的事务备份。
-
-`data:doctor` 是只读数据审计，不修复、不写入。local 模式检查 `events.jsonl / outbox.jsonl / sessions/*/audio` 的 schema、cursor、hash 和音频文件一致性；cloud 模式检查 `inbox/events.jsonl`、云端音频 artifact 和 `learning/*/materials.jsonl`。发现 error 级问题时命令返回非零退出码，warning 仍会输出在报告里。
-
-`cloud:audio-retention` 用于云端音频 artifact 保留策略。默认 dry-run 只输出候选计划，不取得写锁也不删除文件；`--apply` 必须在 cloud receiver 停止后执行，它会取得同一个 data-root 独占锁，若 receiver 或其他写入工具仍在使用该目录会直接拒绝。取得锁后才会删除 `audio/{sessionId}/{chunkId}.{ext}` 并重写 `audio/index.json`。候选文件如果和 index 的 `byteLength/sha256` 不一致会拒绝执行，应先跑 `data:doctor` 排查。
-
-单个会话离线导出：
-
-```powershell
-npm run session:export -- --root data --session-id session_x --out artifacts/session-exports/session_x
-npm run session:export:verify -- --export artifacts/session-exports/session_x
-```
-
-导出包包含：
-
-```text
-session-export-manifest.json
-bundle.json
-events.jsonl
-audio/{chunkId}.{ext}
-```
-
-`session-export-manifest.json` 记录 `bundleHash`、每个导出文件的 `byteLength/sha256` 和整体 `manifestHash`；`verify` 会拒绝缺失、篡改或多出的导出文件，并重新计算 `bundleHash`。它用于把一次听译任务的字幕和录音交给远端服务或离线归档，不替代整个 `data` 目录的备份/恢复。
-
-对应本地 Lite：
-
-```powershell
-$env:TINGYI_SYNC_ENDPOINT="https://your-domain.example/events"
-$env:TINGYI_SYNC_TOKEN="change-me"
-$env:TINGYI_SYNC_AUTO_INTERVAL_MS="30000"
-npm run server
-```
-
-轻量字幕叠层地址：
-
-```text
-http://127.0.0.1:5177/overlay?lines=3&fontSize=34&opacity=0.78
-```
-
-`lines` 控制上下文行数，`fontSize` 控制当前字幕字号，`opacity` 控制背景透明度，`context=0` 可只显示当前字幕。
-
-Windows native 叠层：
-
-```powershell
-npm run overlay:native -- --server http://127.0.0.1:8787 --lines 3 --font-size 34 --opacity 0.78 --click-through
-```
-
-本地 API 设置 token 时，把它显式传给 native host，或先设置同名环境变量：
-
-```powershell
-npm run overlay:native -- --server http://127.0.0.1:8787 --token change-me-local --lines 3
-```
-
-native host 不依赖浏览器标签页，直接以 bearer token 请求 `/api/state` 和 `/api/events`。它会根据 SSE `serverInstanceId + lastCursor` 检测服务重启或时间线不连续并重新加载快照，而不是把新旧进程的 cursor 拼接起来。不需要点击穿透时去掉 `--click-through`，窗口可拖动并可用 `Esc` 关闭。
-
-Windows 系统字幕 helper：
-
-```powershell
-npm run build:system-captions-helper
-npm run system-captions:self-test
-npm run system-captions:probe -- --timeout-ms 12000
-```
-
-如果没有显式设置 `TINGYI_SYSTEM_CAPTIONS_HELPER`，本地服务会自动寻找系统字幕 helper。优先顺序是服务同目录的 `TingyiLite.SystemCaptionsHelper.exe`，然后是仓库内 Release / Debug 构建输出：
-
-```text
-TingyiLite.SystemCaptionsHelper.exe
-native/TingyiLite.SystemCaptionsHelper/bin/Release/net9.0-windows10.0.19041.0/TingyiLite.SystemCaptionsHelper.exe
-native/TingyiLite.SystemCaptionsHelper/bin/Debug/net9.0-windows10.0.19041.0/TingyiLite.SystemCaptionsHelper.exe
-```
-
-helper 会尝试启动/连接 Windows Live Captions，以 `ReadyToCaptionTextBlock` 确认安静状态已经就绪，并在真正出现字幕后绑定 `CaptionsTextBlock`。每次采样都会重新确认当前顶层窗口身份并刷新字幕元素，避免 Live Captions 关闭或重建后继续读取失效的 UI Automation 缓存；运行期失联会报告 `reconnecting`，恢复后重新报告 `ready`，连续 12 秒无法重连则报告 `unavailable` 并退出。空字幕在窗口连接健康时始终是合法安静状态，不触发超时。首次读取只建立会话基线，不导入窗口里的旧字幕；阻塞式 stdin stop 读取运行在独立 Task，主线程会持续轮询 UI Automation。`caption-jsonl-v2` 默认每 100 ms 采样一次，并用无 cursor 的 `caption.preview` 瞬时消息把尚未稳定的英文文本送到 Web 与 native overlay；预览只存在于内存和 SSE，不进入 Lite event、store、outbox 或翻译链路。Web 把 preview 固定在滚动区最底部，窗口高度增加时会向上露出更多已落盘字幕；final 英文和对应中文翻译始终成组保留。后续滚动快照保持不变 750 ms 后提交，连续追加最多累计 2 秒，单段上限 120 字。找不到系统字幕或运行期失联时，后端会清除预览并把当前系统字幕 source 标为 `failed`，用户结束会话后可显式选择另一来源。
-
-Windows Live Captions 需要 Windows 11 22H2 或更新版本。Windows 10 不会把仓库内 helper 自动标记为可用；要测试页面和事件流可使用 `npm run start:lite -- -DemoCaptions`，或使用默认本地 ASR。
 
 ## 获取本地 ASR runtime
 
@@ -338,7 +196,7 @@ npm run local-asr:zh-prepare      # 生成 runtime/funasr-paraformer-zh-2pass �
 
 `npm test` 中需要真实 runtime 的用例会在缺载荷时**自动跳过**（不报错），因此干净 checkout 的测试是绿的；要跑完整验证必须先放好 runtime。
 
-## 统一本地 ASR
+## 本地 ASR 工作原理
 
 默认扫描 `runtime/` 下每个 `runtime-manifest.json`：放好 runtime 后会发现 `moonshine-tiny-en`（英文）与 `funasr-paraformer-zh-2pass`（中文）。两者都使用 `local-asr-engine` manifest 与模型中立的 `local-asr-jsonl-v2` 进程协议。helper 启动后常驻加载模型；服务端把包含安静区间的 `audio` 连续送给同一实例，`drain` 排空尾句，`shutdown` 有确认。输出用 `partial / final / clear`、`sourceId / utteranceId / revision` 表达增量替换关系。partial 只进入内存、SSE、Web 和 native overlay；只有 final 进入 event store、outbox 和可选翻译，中文 final 不进入中文翻译队列。manifest 声明 command/args、输入采样率、streaming/partial 能力、由 runtime 管理的 endpoint 参数、平台、runtime/model/endpoint 来源和许可证、打包期验收命令 `smoke`，以及闭集文件 SHA-256；非法路径、链接、目录逃逸、未列文件或 hash 不一致都会拒绝加载。详细选型与协议见 `docs/chinese-asr-selection.md`。
 
@@ -378,7 +236,7 @@ WASAPI 连续流按所选引擎声明的采样率输出 mono PCM16 WAV，并按�
 - `TINGYI_SYNC_TOKEN`：同步 bearer token；本地发送 outbox 时使用，云端 sync receiver 校验。
 - `TINGYI_SYNC_TENANT_ID`：本地同步发送端附加的租户/账号边界 header；云端配置 `TINGYI_CLOUD_TENANT_ID` 时必须与它一致。
 - `TINGYI_SYNC_AUTO_INTERVAL_MS`：本地自动同步间隔，单位毫秒。未设置时只手动同步；设置后必须是 `1000..86400000` 的整数。
-- `TINGYI_MEMOS_ALLOW_INSECURE_HTTP`：设为 `1` 时允许向非 loopback、非 Tailscale（`100.64.0.0/10`）地址发送明文 HTTP Memos 请求。默认只允许 HTTPS 与上述两类明文地址；其它明文地址不设置此项时明确报错（详见下文 Memos 上报一节）。
+- `TINGYI_MEMOS_ALLOW_INSECURE_HTTP`：设为 `1` 时允许向非 loopback、非 Tailscale（`100.64.0.0/10`）地址发送明文 HTTP Memos 请求。默认只允许 HTTPS 与上述两类明文地址；其它明文地址不设置此项时明确报错（详见下文 [Memos 上报](#memos-上报可选集成)）。
 - `TINGYI_CLOUD_TENANT_ID`：云端 sync receiver 的租户/账号边界。设置后，`/health`、`/events`、`/audio-chunks/*`、`/sessions*` 和 learning material 路由都要求 `x-tingyi-tenant-id` 匹配。
 - `TINGYI_LOCAL_TOKEN`：本地/LAN API 配对 token。设置后，全部 `/api/*` 都需要 `authorization: Bearer <token>`；Web 端可用 `?token=<token>` 保存配对，native overlay 读取同名环境变量或 `--token`。
 - `TINGYI_SYSTEM_CAPTIONS_HELPER`：Windows 系统字幕 helper 命令。
@@ -388,13 +246,19 @@ WASAPI 连续流按所选引擎声明的采样率输出 mono PCM16 WAV，并按�
 - `TINGYI_HTTPS_CERT` / `TINGYI_HTTPS_KEY`：Vite HTTPS PEM 证书和私钥。
 - `TINGYI_HTTPS_PFX` / `TINGYI_HTTPS_PFX_PASSPHRASE`：Vite HTTPS PFX 证书和口令。
 
+### 字幕设置
+
 字幕设置保存在数据目录的 `settings.json`，严格格式为 `{"schemaVersion":1,"captionSource":"local-asr","localAsrEngineId":"moonshine-tiny-en"}`。旧 `moonshine` source 值或缺少模型字段的文件会明确拒绝，不做内联迁移。capture plan 只包含 `local-asr` 与 `system-captions`，只启动显式选择且已发现可用的来源/模型；运行期失败不会自动换源。PUT 必须原子提交 `captionSource` 与 `localAsrEngineId`。仅当 `captionSource=local-asr` 时，未发现或不可用的模型返回 `409`；`system-captions` 不依赖本地 runtime。会话中切换字幕来源或模型仍返回 `409`。
+
+### 翻译服务
 
 翻译服务在 Web 设置页持久化配置，不读取 `TINGYI_TRANSLATION_*` 环境变量。填写 OpenAI-compatible 服务地址、模型、API key 和超时后保存，配置立即生效且重启后继续使用，但中文翻译保持默认关闭，必须由用户显式开启。服务地址必须使用 HTTPS，只有 loopback 地址允许 HTTP；超时允许 `1000..86400000` 毫秒，开关状态单独保存在 `translation-settings.json`。
 
 翻译服务配置保存在数据目录的 `translation-model.json`。API key 作为本机密钥写入该文件，但不会通过设置、状态、健康检查或 readiness API 返回；应限制数据目录只允许当前 Windows 用户访问。更新已有配置时，Web 密钥输入框留空会保留原密钥。开启翻译后，当前未结束会话中尚未翻译的 final 英文字幕会按字幕顺序入队，单会话最多并发 3 个模型请求；结果始终按 `segmentId` 关联，允许后发请求先完成，结束会话前会排空翻译队列。关闭后不再提交新字幕，已经生成的译文仍保留在事件、复盘和 overlay 中。模型失败只更新翻译状态和 readiness，不会切换字幕来源、改用 ASR 模型、重试第二模型或生成占位译文。
 
-Memos 上报是**可选**集成，同样在 Web 设置页持久化配置，不读取 `TINGYI_MEMOS_BASE_URL` / `TINGYI_MEMOS_TOKEN` 环境变量。服务地址、访问令牌、可见性和超时保存在数据目录的 `memos.json`（权限 `0o600`），令牌不会通过设置、状态、健康检查或 readiness API 返回，Web 令牌输入框留空会保留原令牌。
+### Memos 上报（可选集成）
+
+Memos 上报同样在 Web 设置页持久化配置，不读取 `TINGYI_MEMOS_BASE_URL` / `TINGYI_MEMOS_TOKEN` 环境变量。服务地址、访问令牌、可见性和超时保存在数据目录的 `memos.json`（权限 `0o600`），令牌不会通过设置、状态、健康检查或 readiness API 返回，Web 令牌输入框留空会保留原令牌。
 
 **不配置 Memos 时**：服务地址与令牌为空，「Memos 上报」面板显示「未配置」，上报按钮不可点；字幕、翻译、录音、本地事件、outbox 同步、会话导出与 overlay 全部照常工作。本项目不依赖 Memos，也不内置任何 Memos 服务。
 
@@ -412,6 +276,8 @@ Memos 上报是**可选**集成，同样在 Web 设置页持久化配置，不�
 **令牌**：填 Memos 个人访问令牌（`memos_pat_...`）。它在本机明文落盘（`memos.json`，权限 `0o600`），权限等同于该账号，建议单独创建一个专用令牌并在不用时吊销。
 
 两个常见误解：Memos 的 **webhook 是出站通知**（Memos 回调你），**不能**用来接收上传，本项目也不使用它；上传后的音频在 Memos 侧**不是公开链接**，`/file/attachments/...` 需要登录会话才能取用。上报一条会话时：按来源把该会话的录音分块按时间线合并成整场 WAV（分块之间的空档补静音，保持与字幕同一时间轴），超过实例上传上限时按采样帧对齐分卷，每卷都是可独立播放的 WAV；浏览器麦克风等非 PCM16 WAV 录音不做转码也不拼接，按原始分块逐个上报。正文标题是「任务标题 + 本地日期时间」（如 `# 英语听译 2026-08-28 16:32`，按运行本机时区渲染），正文包含会话时间、时长、语言、字幕来源、识别引擎、设备、录音文件名和带时间戳的字幕（有译文时以引用行附在对应字幕后），末尾固定补上 `#英语听译` 标签。先创建附件与 memo，再用 `PATCH /api/v1/memos/{id}/attachments` 挂载并回读校验；任何一步失败都会删除已创建的 memo 与附件，不留半成品或孤儿文件。已上报会话记录在数据目录的 `memos-published.json`；同一条会话重复上报会创建新的 memo，不会覆盖已有的那条，成功结果会覆盖台账里该项。
+
+### 系统字幕 helper 协议
 
 系统字幕 helper 使用 stdout JSONL 协议。每行可以是纯文本，也可以是：
 
@@ -463,7 +329,9 @@ content-type: application/json
 
 浏览器麦克风录音只通过幂等 PUT 把 chunk 落到本地并进入 outbox，不参与字幕识别。`local-asr` 和 `system-captions` 则由服务端直接保存系统回环 WAV。`GET /api/audio-chunks/{sessionId}/{chunkId}` 在返回回放数据前重新校验长度和 SHA-256；字幕始终来自当前显式选择的系统字幕或本地 ASR 引擎。
 
-## 同步协议
+## 同步协议与云端服务
+
+### 本地如何推送到远端
 
 `TINGYI_SYNC_ENDPOINT` 配置后，点击 Web 页“同步一次”或调用 `POST /api/sync/run` 会按 `localCursor` 顺序发送 outbox 中的 `pending` / `failed` 事件。设置 `TINGYI_SYNC_AUTO_INTERVAL_MS` 后，服务会在新事件落盘后短延迟触发一次同步，并按配置间隔继续重试失败 outbox；未设置时保持手动同步。遇到第一条失败事件就停止本轮同步，后续事件继续留在 outbox，下次从失败点重试，避免远端先收到后续字幕、再收到会话/来源元数据。字幕、翻译和音频 chunk 元数据走同一个 outbox；`audio.chunk.saved` 事件成功后，同一轮再上传对应音频二进制。配置 `TINGYI_SYNC_TOKEN` 时，每个请求会带 `authorization: Bearer <token>`；配置 `TINGYI_SYNC_TENANT_ID` 时，每个同步请求和音频 artifact 请求还会带 `x-tingyi-tenant-id`。每个请求：
 
@@ -494,6 +362,17 @@ x-tingyi-tenant-id: <tenant-id>
 
 本地服务启动时会读取 `events.jsonl` 和 `outbox.jsonl` 做严格校验与对账：`events.jsonl` 必须符合 Lite event schema，event cursor 必须从 1 开始连续递增，`session.started.session.syncCursor` 必须等于该 event cursor；`outbox.jsonl` 必须符合 outbox schema，不能有重复 cursor/contentHash，且每个 item 都能在 `events.jsonl` 中找到相同 cursor 和 `contentHash` 的源事件。如果事件已经落盘但对应 outbox 项缺失，会重新生成 pending outbox；如果本地 JSONL 已损坏、event cursor 出现缺口/重复、outbox 出现孤儿 item/重复 item，或同一 cursor 的 outbox hash 与事件内容不一致，会拒绝启动，避免把错误学习事件同步到远端。
 
+对应本地 Lite 的自动同步配置：
+
+```powershell
+$env:TINGYI_SYNC_ENDPOINT="https://your-domain.example/events"
+$env:TINGYI_SYNC_TOKEN="change-me"
+$env:TINGYI_SYNC_AUTO_INTERVAL_MS="30000"
+npm run server
+```
+
+### 云端接收器
+
 仓库内置最小云端接收器：
 
 ```http
@@ -511,6 +390,40 @@ GET /sessions/{sessionId}/learning-materials/audit
 GET /sessions/{sessionId}/learning-materials/latest
 ```
 
+启动方式：
+
+```powershell
+$env:TINGYI_CLOUD_DATA_ROOT="D:\tingyi-cloud-data"
+$env:TINGYI_CLOUD_PORT="8790"
+$env:TINGYI_SYNC_TOKEN="change-me"
+$env:TINGYI_CLOUD_TENANT_ID="personal"
+npm run cloud:sync
+```
+
+`cloud:sync` 是面向远端/局域网的入口。没有 `TINGYI_SYNC_TOKEN` 时会拒绝启动；只有本机临时开发可显式设置 `TINGYI_ALLOW_INSECURE_CLOUD=1`。设置 `TINGYI_CLOUD_TENANT_ID` 后，所有云端请求还必须带匹配的 `x-tingyi-tenant-id`。
+
+云端 receiver 本机 smoke：
+
+```powershell
+$env:TINGYI_SYNC_TOKEN="change-me"
+$env:TINGYI_CLOUD_TENANT_ID="personal"
+npm run cloud:smoke
+```
+
+`cloud:smoke` 会临时启动 Lite 和 cloud receiver，验证事件同步、音频 artifact 上传/读取、`learning-bundle.audioArtifacts`、baseline learning material 和 external-agent 写回。它不启动持久服务，不需要公网入口。
+
+远端 receiver 验收 smoke：
+
+```powershell
+$env:TINGYI_DEVICE_ID="device_choose-a-stable-unique-id"
+$env:TINGYI_SYNC_ENDPOINT="https://your-domain.example/events"
+$env:TINGYI_SYNC_TOKEN="change-me"
+$env:TINGYI_SYNC_TENANT_ID="personal"
+npm run cloud:remote-smoke
+```
+
+`cloud:remote-smoke` 会启动一个临时本地 Lite，把一条测试会话、来源和字幕同步到远端 receiver，再验证远端 `learning-bundle`、`audit` 和 external-agent runner 写回。它会在远端留下 `Remote cloud smoke` 测试会话，用于部署后验收；不要把它当只读探测。
+
 `POST /events` 会校验：
 
 - body/header 的 `deviceId / localCursor / contentHash` 一致。
@@ -523,6 +436,8 @@ GET /sessions/{sessionId}/learning-materials/latest
 云端 inbox 以 `inbox/events.jsonl` 为真源，`inbox/index.json` 是可重建索引。receiver 读取 JSONL 时会校验每条记录的 schema、内嵌 Lite event、`localCursor`、`contentHash` 和 `receivedAt`；读取 index 时会从 JSONL 对账并修复 stale index，同时检查每个 device 的 cursor 连续性。发现损坏记录或缺口会拒绝启动/读取，避免后续学习包建立在不完整事件流上。
 
 `GET /sessions/{sessionId}/audit` 是远端只读审计面，用来判断当前会话是否适合交给学习 agent。它复用 `learning-bundle`、音频 artifact 覆盖率和 learning material 校验，返回 `readyForLearningAgent / hasCurrentLearningMaterial / audioCoverage / materialCoverage / issues`。例如没有字幕、音频 artifact 缺失、只有旧 bundle 的教材，都会进入 `issues`，便于远端 Hermes 或运维脚本先做数据质量判断。
+
+### 音频 artifact 上传与读取
 
 当事件是 `audio.chunk.saved` 时，本地同步端会在事件成功后继续上传音频二进制：
 
@@ -550,6 +465,8 @@ x-tingyi-tenant-id: <tenant-id>
 ```
 
 响应 body 是原始音频二进制，并带 `content-type / x-tingyi-byte-length / x-tingyi-audio-sha256`，供 ASR、纠错或教材生成任务校验输入。
+
+### 学习材料生成与写回
 
 `POST /sessions/{sessionId}/learning-materials` 支持两种用法。请求体不带 `material` 时，receiver 会读取该会话的云端 `learning-bundle`，生成一份 baseline 标准学习材料：
 
@@ -622,7 +539,7 @@ npm run cloud:agent:batch -- --base-url https://your-domain.example --token chan
 
 receiver 会校验 `sessionId / sourceBundleHash / reviewPlan.cardIds`，并按内容重新计算 `materialHash` 和 `materialId`。同一内容重复写回会返回 existing，不重复写入。每次成功生成、导入或命中 existing 都会追加 `learning/{sessionId}/material-audit.jsonl`，`GET /sessions/{sessionId}/learning-materials/audit` 可读取这些审计记录。`learning/{sessionId}/materials.jsonl` 读取时也会重新校验 schema、route session、`sourceBundleHash`、`materialHash` 和 `materialId`；启动扫描还会要求每份材料都有字段完全匹配的 generated/imported 来源审计，并拒绝悬空审计。损坏、缺来源或被篡改的数据会让 receiver 启动失败，必须外部人工修复，而不是继续暴露给 Hermes/学习 agent。`GET /sessions/{sessionId}/learning-materials/latest` 只返回当前 `learning-bundle.bundleHash` 对应的最新材料；如果字幕、音频 coverage 或其他学习事件变化导致 bundleHash 更新，旧材料不会继续作为 latest 返回。
 
-本地数据 API：
+### 本地数据 API 与审计
 
 ```http
 GET /api/readiness
@@ -646,6 +563,128 @@ GET /api/sessions/{sessionId}/audit
 
 云端 `learning-bundle` 额外包含 audio artifact 索引。每条 audio chunk 元数据包含本地 `sha256`；`audioArtifacts` 会列出已归档音频的 `chunkId / downloadPath / sha256 / byteLength / mimeType`，远端 agent 可直接用 `downloadPath` 拉取音频并和事件元数据对账。云端 `audioCoverage` 会给出 `totalChunks / archivedArtifacts / missingChunkIds / complete`，agent 可以据此决定是否等待音频补齐再做 ASR/纠错/教材生成。学习包用于远端 agent 调试、补拉或按会话生成教材，不替代 outbox 的增量同步。
 
+## 叠层与系统字幕
+
+轻量字幕叠层地址：
+
+```text
+http://127.0.0.1:5177/overlay?lines=3&fontSize=34&opacity=0.78
+```
+
+`lines` 控制上下文行数，`fontSize` 控制当前字幕字号，`opacity` 控制背景透明度，`context=0` 可只显示当前字幕。
+
+Windows native 叠层：
+
+```powershell
+npm run overlay:native -- --server http://127.0.0.1:8787 --lines 3 --font-size 34 --opacity 0.78 --click-through
+```
+
+本地 API 设置 token 时，把它显式传给 native host，或先设置同名环境变量：
+
+```powershell
+npm run overlay:native -- --server http://127.0.0.1:8787 --token change-me-local --lines 3
+```
+
+native host 不依赖浏览器标签页，直接以 bearer token 请求 `/api/state` 和 `/api/events`。它会根据 SSE `serverInstanceId + lastCursor` 检测服务重启或时间线不连续并重新加载快照，而不是把新旧进程的 cursor 拼接起来。不需要点击穿透时去掉 `--click-through`，窗口可拖动并可用 `Esc` 关闭。
+
+Windows 系统字幕 helper：
+
+```powershell
+npm run build:system-captions-helper
+npm run system-captions:self-test
+npm run system-captions:probe -- --timeout-ms 12000
+```
+
+如果没有显式设置 `TINGYI_SYSTEM_CAPTIONS_HELPER`，本地服务会自动寻找系统字幕 helper。优先顺序是服务同目录的 `TingyiLite.SystemCaptionsHelper.exe`，然后是仓库内 Release / Debug 构建输出：
+
+```text
+TingyiLite.SystemCaptionsHelper.exe
+native/TingyiLite.SystemCaptionsHelper/bin/Release/net9.0-windows10.0.19041.0/TingyiLite.SystemCaptionsHelper.exe
+native/TingyiLite.SystemCaptionsHelper/bin/Debug/net9.0-windows10.0.19041.0/TingyiLite.SystemCaptionsHelper.exe
+```
+
+helper 会尝试启动/连接 Windows Live Captions，以 `ReadyToCaptionTextBlock` 确认安静状态已经就绪，并在真正出现字幕后绑定 `CaptionsTextBlock`。每次采样都会重新确认当前顶层窗口身份并刷新字幕元素，避免 Live Captions 关闭或重建后继续读取失效的 UI Automation 缓存；运行期失联会报告 `reconnecting`，恢复后重新报告 `ready`，连续 12 秒无法重连则报告 `unavailable` 并退出。空字幕在窗口连接健康时始终是合法安静状态，不触发超时。首次读取只建立会话基线，不导入窗口里的旧字幕；阻塞式 stdin stop 读取运行在独立 Task，主线程会持续轮询 UI Automation。`caption-jsonl-v2` 默认每 100 ms 采样一次，并用无 cursor 的 `caption.preview` 瞬时消息把尚未稳定的英文文本送到 Web 与 native overlay；预览只存在于内存和 SSE，不进入 Lite event、store、outbox 或翻译链路。Web 把 preview 固定在滚动区最底部，窗口高度增加时会向上露出更多已落盘字幕；final 英文和对应中文翻译始终成组保留。后续滚动快照保持不变 750 ms 后提交，连续追加最多累计 2 秒，单段上限 120 字。找不到系统字幕或运行期失联时，后端会清除预览并把当前系统字幕 source 标为 `failed`，用户结束会话后可显式选择另一来源。
+
+Windows Live Captions 需要 Windows 11 22H2 或更新版本。Windows 10 不会把仓库内 helper 自动标记为可用；要测试页面和事件流可使用 `npm run start:lite -- -DemoCaptions`，或使用默认本地 ASR。
+
+## 数据维护
+
+### 设备身份迁移
+
+每台设备必须使用不同且稳定的 `TINGYI_DEVICE_ID`；主服务不再使用共享的 `local-device` 默认值。已有 JSONL 数据若尚无 `device-id.txt`，先只读检查迁移计划，再显式应用：
+
+```powershell
+npm run data:migrate:device-id -- -Root data
+npm run data:migrate:device-id -- -Root data -Apply
+```
+
+迁移器只在现有 `session.started` 与 outbox 全部指向同一个合法且非保留 deviceId 时写入新身份文件；多值、非法 JSON 或身份冲突会直接失败，不改写 event/outbox。旧默认值 `local-device` 无法证明设备唯一性，因此明确拒绝原地改名；预发布数据应先备份，再外部重置数据目录。普通启动器不会替已有时间线猜测或写入身份。
+
+### captureMode 数据迁移
+
+当前 event schema 要求每个 `session.started.session` 都显式包含 `captureMode: "captions" | "recording-only"`。主服务不会在读取旧 JSONL 时猜测、补字段或重算 outbox hash；旧数据缺少该字段会被严格校验拒绝。先做 dry-run：
+
+```powershell
+npm run data:migrate:capture-mode -- --root data
+```
+
+确认报告后再显式 apply；备份目录必须位于数据目录外且尚不存在：
+
+```powershell
+npm run data:migrate:capture-mode -- --root data --apply --backup artifacts/migrations/capture-mode-20260712
+npm run data:doctor -- --kind local --root data
+```
+
+迁移器只处理 `events.jsonl` 和 `outbox.jsonl`：只有 `browser-mic` 来源的会话推断为 `recording-only`，出现任一字幕来源的会话推断为 `captions`；随后同步改写内嵌 outbox event 和 `contentHash`。它会先验证迁移前 hash 关系和迁移后 schema，再写回 UTF-8 JSONL，并把原文件与 `migration-result.json` 放入备份目录。无法根据 `source.attached` 明确推断时会失败，不会兜底成默认值。
+
+### 备份与恢复
+
+数据目录备份：
+
+```powershell
+npm run data:backup -- --source data --out artifacts/backups/local-data-20260704
+npm run data:backup:verify -- --backup artifacts/backups/local-data-20260704
+npm run data:backup:restore -- --backup artifacts/backups/local-data-20260704 --target D:\tingyi-lite-restore-data
+npm run data:doctor -- --kind local --root data
+```
+
+同一个命令也可用于云端数据目录：
+
+```powershell
+npm run data:backup -- --source D:\tingyi-cloud-data --out artifacts/backups/cloud-data-20260704
+npm run data:doctor -- --kind cloud --root D:\tingyi-cloud-data
+npm run cloud:audio-retention -- --root D:\tingyi-cloud-data --older-than-days 30
+npm run cloud:audio-retention -- --root D:\tingyi-cloud-data --older-than-days 30 --apply
+```
+
+备份包由 `backup-manifest.json` 和 `files/` 组成。manifest 记录每个文件的相对路径、`byteLength`、`sha256` 和整体 `manifestHash`；`verify` 会拒绝缺失、篡改或多出的文件。`restore` 只写入空目录，不覆盖现有数据；恢复后仍应启动 Lite/cloud receiver 走正常 JSONL schema 校验。这个备份包是 JSONL 阶段的离线恢复手段，不替代后续 SQLite/Postgres 的事务备份。
+
+### 数据审计
+
+`data:doctor` 是只读数据审计，不修复、不写入。local 模式检查 `events.jsonl / outbox.jsonl / sessions/*/audio` 的 schema、cursor、hash 和音频文件一致性；cloud 模式检查 `inbox/events.jsonl`、云端音频 artifact 和 `learning/*/materials.jsonl`。发现 error 级问题时命令返回非零退出码，warning 仍会输出在报告里。
+
+### 云端音频保留策略
+
+`cloud:audio-retention` 用于云端音频 artifact 保留策略。默认 dry-run 只输出候选计划，不取得写锁也不删除文件；`--apply` 必须在 cloud receiver 停止后执行，它会取得同一个 data-root 独占锁，若 receiver 或其他写入工具仍在使用该目录会直接拒绝。取得锁后才会删除 `audio/{sessionId}/{chunkId}.{ext}` 并重写 `audio/index.json`。候选文件如果和 index 的 `byteLength/sha256` 不一致会拒绝执行，应先跑 `data:doctor` 排查。
+
+### 单个会话离线导出
+
+```powershell
+npm run session:export -- --root data --session-id session_x --out artifacts/session-exports/session_x
+npm run session:export:verify -- --export artifacts/session-exports/session_x
+```
+
+导出包包含：
+
+```text
+session-export-manifest.json
+bundle.json
+events.jsonl
+audio/{chunkId}.{ext}
+```
+
+`session-export-manifest.json` 记录 `bundleHash`、每个导出文件的 `byteLength/sha256` 和整体 `manifestHash`；`verify` 会拒绝缺失、篡改或多出的导出文件，并重新计算 `bundleHash`。它用于把一次听译任务的字幕和录音交给远端服务或离线归档，不替代整个 `data` 目录的备份/恢复。
+
 ## 架构
 
 ```text
@@ -660,3 +699,7 @@ Capture Adapters
 ```
 
 详细规划见 [docs/architecture.md](docs/architecture.md)。
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。runtime 的第三方声明在 `third_party/` 和每个 runtime 目录旁。
