@@ -1,0 +1,20 @@
+node_modules/
+dist/
+data/
+cloud-data/
+.env
+.DS_Store
+artifacts/
+**/bin/
+**/obj/
+.runs/
+.codegraph/
+.cache/
+cache/
+test.mp3
+test.mp4
+
+# Downloaded/generated ASR runtimes are release inputs, not source-control payloads: each one is
+# described by a strict runtime-manifest.json with per-file SHA-256 and is published as a release
+# asset (or rebuilt with scripts/*.ps1) instead of being committed.
+runtime/

@@ -1,0 +1,17 @@
+[
+  {
+    "name": "long-schedule",
+    "wavFile": "long-schedule.wav",
+    "reference": "请把会议时间改到明天下午3点半，并提醒产品经理准备第二季度销售数据。"
+  },
+  {
+    "name": "numbers",
+    "wavFile": "numbers.wav",
+    "reference": "设备编号是20260808，当前温度23.5摄氏度。"
+  },
+  {
+    "name": "terms",
+    "wavFile": "terms.wav",
+    "reference": "实时字幕需要准确识别人名、数字和专业术语，不能把系统配置写错。"
+  }
+]

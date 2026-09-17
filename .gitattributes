@@ -1,0 +1,7 @@
+# runtime/ 是逐字节受 runtime-manifest.json 的 SHA-256 校验的发布输入。
+# 禁止 Git 做任何行尾或文本转换：任何 CRLF <-> LF 改写都会让运行时校验失败。
+# 其中若干文件的规范字节本身就是混合行尾，只有逐字节保存才能复现。
+runtime/** -text
+
+# 本文件自身固定 LF，避免受 core.autocrlf 影响产生无意义改写。
+.gitattributes text eol=lf
