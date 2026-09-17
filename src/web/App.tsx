@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Captions, Cloud, Cpu, ExternalLink, Headphones, Languages, Mic, Monitor, Play, RadioTower, RefreshCw, Save, Square, UploadCloud, X } from "lucide-react";
+import { Activity, Captions, Cloud, Cpu, ExternalLink, Headphones, Languages, Mic, Monitor, Moon, Play, RadioTower, RefreshCw, Save, Square, Sun, UploadCloud, X } from "lucide-react";
 import { applySequentialLiteEvent, createInitialLiteState, selectActiveCaptionSource, selectRecentContext } from "../core/eventStore";
 import { applyCaptionPreview, createCaptionPreviewClientState, isActiveCaptionPreview, resetCaptionPreviewClientState, type CaptionPreviewMessage } from "../core/captionPreview";
 import type { CaptionSourcePreference, CapturePlan, LiteEvent, LiteState, MemosPublishResult, MemosSettingsView, MemosVisibility, SessionRecord, SourceRecord, SyncOutboxSummary, TranslationSettingsView } from "../core/schema";
@@ -16,6 +16,19 @@ import { selectLiveCaptionLines, type LiveCaptionLine } from "./liveCaptionModel
 import { findSessionAudioChunk, isSessionCaptionActive, nextSessionAudioChunk, sessionPlaybackTimeMs } from "./sessionPlayback";
 
 type Tone = "good" | "warn" | "bad" | "neutral" | "live";
+
+type ThemeMode = "auto" | "light" | "dark";
+
+const THEME_STORAGE_KEY = "tingyi-lite-theme";
+
+function readStoredThemeMode(): ThemeMode {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  return stored === "light" || stored === "dark" ? stored : "auto";
+}
+
+function resolveTheme(themeMode: ThemeMode, prefersDark: boolean): "light" | "dark" {
+  return themeMode === "auto" ? (prefersDark ? "dark" : "light") : themeMode;
+}
 
 interface RecorderState {
   active: boolean;
@@ -67,6 +80,7 @@ export function App() {
   const [title, setTitle] = useState("英语听译");
   const [busy, setBusy] = useState(false);
   const [statusText, setStatusText] = useState("连接本地服务");
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
   const [outboxSummary, setOutboxSummary] = useState<SyncOutboxSummary>({ total: 0, pending: 0, syncing: 0, synced: 0, failed: 0 });
   const [recorderState, setRecorderState] = useState<RecorderState>(() => initialRecorderState());
   const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<string | null>(null);
@@ -88,6 +102,24 @@ export function App() {
   const sessionAudioRef = useRef<HTMLAudioElement | null>(null);
   const pendingSessionSeekMsRef = useRef<number | null>(null);
   const pendingSessionAutoplayRef = useRef(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      document.documentElement.dataset.theme = resolveTheme(themeMode, media.matches);
+    };
+    applyTheme();
+    if (themeMode !== "auto") {
+      return;
+    }
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [themeMode]);
+
+  const selectThemeMode = (next: ThemeMode) => {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+    setThemeMode(next);
+  };
 
   useEffect(() => {
     void ensureUploadCoordinator().catch((error) => {
@@ -193,11 +225,26 @@ export function App() {
     captionStageContext.map((segment) => ({
       key: segment.segmentId,
       text: segment.text,
-      translation: state.translations[segment.segmentId]?.text
+      translation: state.translations[segment.segmentId]?.text,
+      startMs: segment.startMs
     })),
     activePreview,
     32
   );
+  const sessionStartedAt = session?.startedAt ?? null;
+  const [sessionElapsedMs, setSessionElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!sessionStartedAt) {
+      setSessionElapsedMs(0);
+      return;
+    }
+    const startedMs = Date.parse(sessionStartedAt);
+    const tick = () => setSessionElapsedMs(Date.now() - startedMs);
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [sessionStartedAt]);
   const audioChunks = session
     ? Object.values(state.audioChunks).filter((chunk) => chunk.sessionId === session.sessionId)
     : [];
@@ -874,9 +921,41 @@ export function App() {
             <StatusPill tone={health?.ok ? "good" : "warn"}>{health?.ok ? "本地服务可用" : "本地服务异常"}</StatusPill>
             <span className="operation-status" role="status" aria-live="polite">{statusText}</span>
           </div>
+          <div className="theme-switch" role="group" aria-label="主题">
+            <button
+              className={themeMode === "auto" ? "theme-option active" : "theme-option"}
+              type="button"
+              onClick={() => selectThemeMode("auto")}
+              aria-pressed={themeMode === "auto"}
+              aria-label="跟随系统"
+              title="跟随系统"
+            >
+              <Monitor size={15} />
+            </button>
+            <button
+              className={themeMode === "light" ? "theme-option active" : "theme-option"}
+              type="button"
+              onClick={() => selectThemeMode("light")}
+              aria-pressed={themeMode === "light"}
+              aria-label="浅色"
+              title="浅色"
+            >
+              <Sun size={15} />
+            </button>
+            <button
+              className={themeMode === "dark" ? "theme-option active" : "theme-option"}
+              type="button"
+              onClick={() => selectThemeMode("dark")}
+              aria-pressed={themeMode === "dark"}
+              aria-label="深色"
+              title="深色"
+            >
+              <Moon size={15} />
+            </button>
+          </div>
           <button className="icon-button" type="button" onClick={() => void refresh()}>
             <RefreshCw size={16} />
-            <span>刷新</span>
+            <span>Refresh</span>
           </button>
         </div>
       </section>
@@ -895,7 +974,7 @@ export function App() {
             <div className="button-row">
               <button className="icon-button primary" type="button" onClick={() => void createSession()} disabled={busy || Boolean(session) || !capturePlan?.primary} title={!capturePlan?.primary ? "没有可用字幕来源" : "创建并开始新任务"}>
                 <Play size={16} />
-                <span>开始任务</span>
+                <span>Start</span>
               </button>
               <button
                 className="icon-button"
@@ -905,7 +984,7 @@ export function App() {
                 title={recordingPhase === "flush_uncertain" ? "确认尾包可能缺失并结束任务" : "结束任务"}
               >
                 <Square size={16} />
-                <span>{recordingPhase === "flush_uncertain" ? "确认并结束" : sessionStopping ? "继续结束" : "结束任务"}</span>
+                <span>{recordingPhase === "flush_uncertain" ? "Confirm & stop" : sessionStopping ? "Finish stopping" : "Stop"}</span>
               </button>
             </div>
             <LiveCaptionStage
@@ -924,7 +1003,7 @@ export function App() {
             <div className="button-row">
               <button className="icon-button" type="button" onClick={() => void syncOnce()} disabled={busy || !health?.syncConfigured}>
                 <UploadCloud size={16} />
-                <span>同步一次</span>
+                <span>Sync</span>
               </button>
             </div>
           </section>
@@ -1093,7 +1172,7 @@ export function App() {
               </label>
               <button className="icon-button translation-config-save" type="submit" disabled={busy} title="保存翻译模型配置">
                 <Save size={16} />
-                <span>保存配置</span>
+                <span>Save</span>
               </button>
             </form>
             <div className="capture-plan">
@@ -1142,7 +1221,7 @@ export function App() {
                 title="测试 Memos 连接"
               >
                 <RadioTower size={16} />
-                <span>测试连接</span>
+                <span>Test</span>
               </button>
             </div>
             {memosSettings?.lastError ? <p className="error-text">{memosSettings.lastError}</p> : null}
@@ -1193,7 +1272,7 @@ export function App() {
               </label>
               <button className="icon-button translation-config-save" type="submit" disabled={memosBusy} title="保存 Memos 配置">
                 <Save size={16} />
-                <span>保存配置</span>
+                <span>Save</span>
               </button>
             </form>
           </section>
@@ -1228,15 +1307,15 @@ export function App() {
                 title="开始 Web 麦克风录音"
               >
                 <Mic size={16} />
-                <span>开始录音</span>
+                <span>Record</span>
               </button>
               <button className="icon-button" type="button" onClick={() => void stopMicRecorderFromUi()} disabled={busy || !recorderState.active || recordingPhase === "stop_requested"}>
                 <Square size={16} />
-                <span>停止</span>
+                <span>Stop</span>
               </button>
               <button className="icon-button" type="button" onClick={() => void retryPendingAudioUploads()} disabled={recorderState.pendingUploads === 0 || recorderState.uploadStatus !== "blocked"}>
                 <UploadCloud size={16} />
-                <span>重试上传</span>
+                <span>Retry upload</span>
               </button>
             </div>
             {recorderState.error ? <p className="error-text">{recorderState.error}</p> : null}
@@ -1251,6 +1330,32 @@ export function App() {
             live={Boolean(activePreview) || recentContext.length > 0}
           />
 
+          <section className="transport-bar">
+            <div className="transport-clock">
+              <strong>{formatClock(sessionElapsedMs)}</strong>
+              <small>已录制</small>
+            </div>
+            <div className="transport-meter" aria-hidden="true">
+              <i className={session ? "active" : ""} />
+            </div>
+            <div className="transport-actions">
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => void endCurrentSession(recordingPhase === "flush_uncertain")}
+                disabled={busy || !session}
+                title={recordingPhase === "flush_uncertain" ? "确认尾包可能缺失并结束任务" : "结束任务"}
+              >
+                <Square size={16} />
+                <span>{recordingPhase === "flush_uncertain" ? "Confirm & stop" : sessionStopping ? "Finish stopping" : "Stop"}</span>
+              </button>
+              <button className="icon-button" type="button" onClick={() => void syncOnce()} disabled={busy || !health?.syncConfigured}>
+                <UploadCloud size={16} />
+                <span>Sync</span>
+              </button>
+            </div>
+          </section>
+
           <section className="context-panel">
             <div className="panel-heading">
               <Cloud size={18} />
@@ -1261,8 +1366,8 @@ export function App() {
             </div>
             <div className="context-list">
               {recentContext.length === 0 ? (
-                <div className="empty-state">
-                  <UploadCloud size={24} />
+                <div className="compact-empty">
+                  <UploadCloud size={16} />
                   <span>等待当前字幕来源产生内容</span>
                 </div>
               ) : (
@@ -1292,26 +1397,39 @@ export function App() {
 
         {endedSessions.length > 0 ? (
           <div className="history-layout">
-            <nav className="history-session-list" aria-label="历史任务">
-              {endedSessions.map((item) => {
-                const captionCount = Object.values(state.captions).filter((segment) => segment.sessionId === item.sessionId).length;
-                return (
-                  <button
-                    className={item.sessionId === selectedHistorySession?.sessionId ? "history-session-button active" : "history-session-button"}
-                    type="button"
-                    key={item.sessionId}
-                    onClick={() => {
-                      setSelectedHistorySessionId(item.sessionId);
-                      setSelectedHistoryChunkId(null);
-                      resetSessionPlayback();
-                    }}
-                  >
-                    <strong>{item.title}</strong>
-                    <span>{formatDateTime(item.endedAt ?? item.startedAt)} · {captionCount} 条字幕</span>
-                  </button>
-                );
-              })}
-            </nav>
+            <div className="history-session-table">
+              <div className="history-table-head" aria-hidden="true">
+                <span>会话</span>
+                <span>开始时间</span>
+                <span>时长</span>
+                <span>字幕</span>
+                <span>录音块</span>
+              </div>
+              <nav className="history-session-list" aria-label="历史任务">
+                {endedSessions.map((item) => {
+                  const captionCount = Object.values(state.captions).filter((segment) => segment.sessionId === item.sessionId).length;
+                  const chunkCount = Object.values(state.audioChunks).filter((chunk) => chunk.sessionId === item.sessionId).length;
+                  return (
+                    <button
+                      className={item.sessionId === selectedHistorySession?.sessionId ? "history-session-button active" : "history-session-button"}
+                      type="button"
+                      key={item.sessionId}
+                      onClick={() => {
+                        setSelectedHistorySessionId(item.sessionId);
+                        setSelectedHistoryChunkId(null);
+                        resetSessionPlayback();
+                      }}
+                    >
+                      <strong>{item.title}</strong>
+                      <span>{formatDateTime(item.startedAt)}</span>
+                      <span>{item.endedAt ? formatClock(Date.parse(item.endedAt) - Date.parse(item.startedAt)) : "--:--"}</span>
+                      <span>{captionCount}</span>
+                      <span>{chunkCount}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
 
             {selectedHistorySession ? (
               <div className="history-workspace">
@@ -1339,7 +1457,7 @@ export function App() {
                         : "请先配置 Memos"}
                     >
                       <UploadCloud size={16} />
-                      <span>上报到 Memos</span>
+                      <span>Publish</span>
                     </button>
                     {memosPublished[selectedHistorySession.sessionId] ? (
                       <a
@@ -1467,12 +1585,18 @@ function LiveCaptionStage({
       <div className="caption-roll" aria-label="滚动字幕">
         {lines.length > 0 ? lines.map((line) => (
           <div className={line.preview ? "caption-roll-line preview" : "caption-roll-line"} key={line.key}>
-            <p className="caption-roll-english">{line.text}</p>
-            {line.translation ? <p className="caption-roll-translation">{line.translation}</p> : null}
+            <span className="caption-roll-time">{formatClock(line.startMs)}</span>
+            <div className="caption-roll-body">
+              <p className="caption-roll-english">{line.text}</p>
+              {line.translation ? <p className="caption-roll-translation">{line.translation}</p> : null}
+            </div>
           </div>
         )) : (
           <div className="caption-roll-line empty">
-            <p className="caption-roll-english">等待字幕事件</p>
+            <span className="caption-roll-time" />
+            <div className="caption-roll-body">
+              <p className="caption-roll-english">等待字幕事件</p>
+            </div>
           </div>
         )}
       </div>
@@ -1565,6 +1689,16 @@ function formatBytes(bytes: number): string {
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatClock(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
 function formatTimeRange(startMs: number, endMs: number): string {

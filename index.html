@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>听译 Lite</title>
+    <script>
+      // 在 React 挂载和样式生效前先定下主题，避免深色系统上首屏先闪一下浅色。
+      (() => {
+        const mode = localStorage.getItem("tingyi-lite-theme");
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const dark = mode === "dark" || (mode !== "light" && prefersDark);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

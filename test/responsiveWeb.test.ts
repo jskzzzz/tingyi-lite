@@ -95,4 +95,37 @@ describe("responsive Web layout contracts", () => {
     expect(app).not.toContain("uploadMoonshinePreview");
     expect(api).not.toContain("/api/moonshine-preview");
   });
+
+  it("keeps the three-state theme switch wired to the stored preference", async () => {
+    const [app, styles, html] = await Promise.all([
+      readFile("src/web/App.tsx", "utf8"),
+      readFile("src/web/styles.css", "utf8"),
+      readFile("index.html", "utf8")
+    ]);
+
+    expect(app).toContain('const THEME_STORAGE_KEY = "tingyi-lite-theme"');
+    expect(app).toContain('selectThemeMode("auto")');
+    expect(app).toContain('selectThemeMode("light")');
+    expect(app).toContain('selectThemeMode("dark")');
+    expect(app).toContain('className="theme-switch" role="group" aria-label="主题"');
+    expect(app).toContain('media.addEventListener("change", applyTheme)');
+    // 主题由 data-theme 决定，不靠 CSS 媒体查询，否则三态切换没法覆盖"跟随系统"。
+    expect(styles).toContain(':root[data-theme="dark"]');
+    expect(styles).toContain(".theme-switch {");
+    expect(styles).not.toContain("@media (prefers-color-scheme: dark)");
+    // 首屏脚本必须在 React 挂载前定下主题，避免深色系统上闪一下浅色。
+    expect(html).toContain('localStorage.getItem("tingyi-lite-theme")');
+    expect(html).toContain("document.documentElement.dataset.theme");
+  });
+
+  it("re-declares the narrow-screen console sizing after the console layer", async () => {
+    const styles = await readFile("src/web/styles.css", "utf8");
+
+    // V1 层写在文件末尾，会盖掉前面的媒体查询；窄屏尺寸必须在它之后再声明一次。
+    const baseGutter = styles.indexOf("grid-template-columns: 54px");
+    const narrowGutter = styles.indexOf("grid-template-columns: 44px");
+    expect(baseGutter).toBeGreaterThan(0);
+    expect(narrowGutter).toBeGreaterThan(baseGutter);
+    expect(styles).toMatch(/@media \(max-width: 900px\) \{\s*\.live-layout \{\s*grid-template-columns: 1fr;/);
+  });
 });

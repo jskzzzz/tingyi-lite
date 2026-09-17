@@ -19,15 +19,15 @@ describe("selectLiveCaptionLines", () => {
     timestamp: "2026-07-19T00:00:02.300Z"
   };
   const durable = [
-    { key: "latest", text: "Latest final", translation: "最近的定稿" },
-    { key: "older", text: "Older final", translation: "更早的定稿" }
+    { key: "latest", text: "Latest final", translation: "最近的定稿", startMs: 16_000 },
+    { key: "older", text: "Older final", translation: "更早的定稿", startMs: 11_000 }
   ];
 
   it("keeps the preview newest while retaining translated final lines", () => {
     expect(selectLiveCaptionLines(durable, preview, 3)).toEqual([
-      { key: "preview:stream-roll", text: "Newest live words", preview: true },
-      { key: "latest", text: "Latest final", translation: "最近的定稿", preview: false },
-      { key: "older", text: "Older final", translation: "更早的定稿", preview: false }
+      { key: "preview:stream-roll", text: "Newest live words", startMs: 2000, preview: true },
+      { key: "latest", text: "Latest final", translation: "最近的定稿", startMs: 16_000, preview: false },
+      { key: "older", text: "Older final", translation: "更早的定稿", startMs: 11_000, preview: false }
     ]);
   });
 
@@ -40,9 +40,9 @@ describe("selectLiveCaptionLines", () => {
 
   it("does not briefly duplicate a preview that already became the latest final", () => {
     expect(selectLiveCaptionLines([
-      { key: "latest", text: "Newest live words", translation: "最新口译" }
+      { key: "latest", text: "Newest live words", translation: "最新口译", startMs: 2000 }
     ], preview, 3)).toEqual([
-      { key: "latest", text: "Newest live words", translation: "最新口译", preview: false }
+      { key: "latest", text: "Newest live words", translation: "最新口译", startMs: 2000, preview: false }
     ]);
   });
 

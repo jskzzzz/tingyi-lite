@@ -25,7 +25,8 @@ export function OverlayView() {
     snapshot.context.map((line) => ({
       key: line.segment.segmentId,
       text: line.segment.text,
-      translation: line.translation
+      translation: line.translation,
+      startMs: line.segment.startMs
     })),
     activePreview,
     preferences.showContext ? lineCount : 1

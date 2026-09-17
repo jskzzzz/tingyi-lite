@@ -4,6 +4,7 @@ export interface DurableLiveCaptionLine {
   key: string;
   text: string;
   translation?: string;
+  startMs: number;
 }
 
 export interface LiveCaptionLine extends DurableLiveCaptionLine {
@@ -22,7 +23,7 @@ export function selectLiveCaptionLines(
   const previewDuplicatesLatest = preview && durable[0]?.text.trim() === preview.text.trim();
   return [
     ...(preview && !previewDuplicatesLatest
-      ? [{ key: `preview:${preview.streamId}`, text: preview.text, preview: true }]
+      ? [{ key: `preview:${preview.streamId}`, text: preview.text, startMs: preview.startMs, preview: true }]
       : []),
     ...durable
   ].slice(0, limit);
