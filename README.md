@@ -52,25 +52,29 @@ Windows x64。采集链路基于 WASAPI 与 UI Automation，没有 Linux / macOS
 
 **便携包（推荐）**
 
-从 [Releases](../../releases) 下载 `tingyi-lite-*-win-x64.7z`，解压后双击 `start.cmd`，浏览器会打开 `http://127.0.0.1:8787/`。
+从 [Releases](../../releases) 下载 `tingyi-lite-*-win-x64.zip`，解压后双击 `start.cmd`，浏览器会打开 `http://127.0.0.1:8787/`。
 
 **从源码运行**
 
-源码仓库不含模型与原生运行时，需要先从 Releases 取对应的 runtime 归档：
+源码仓库不含离线模型（两个 runtime 合计约 850 MB，作为 release 资产分发）：
 
 ```powershell
 npm ci
-# 把 funasr-paraformer-zh-2pass.7z 与 moonshine-cpp.7z 解压到仓库 runtime/ 下（归档内已带同名目录）
+pwsh -File scripts/fetch-local-asr-runtimes.ps1   # 下载两个离线 runtime，按 SHA-256 校验后解压到 runtime/
 npm run server
 ```
+
+脚本默认取最新 release，也可指定版本（`-Tag v0.1.1`）或加 `-Force` 重装。不想用脚本的话，直接到 [Releases](../../releases) 下载两个 zip 解压到仓库 `runtime/` 下也行。
 
 ## Release 资产
 
 | 资产 | 用途 |
 | --- | --- |
-| `tingyi-lite-<version>-win-x64.7z` | 免安装便携包，含 Node.js、.NET 运行时与两个离线模型 |
-| `funasr-paraformer-zh-2pass.7z` | 中文离线 runtime，源码运行时需要 |
-| `moonshine-cpp.7z` | 英文离线 runtime，源码运行时需要 |
+| `tingyi-lite-<version>-win-x64.zip` | 免安装便携包，含 Node.js、.NET 运行时与两个离线模型 |
+| `moonshine-cpp.zip` | 英文离线 runtime，源码运行时需要 |
+| `funasr-paraformer-zh-2pass.zip` | 中文离线 runtime，源码运行时需要 |
+
+均为普通 zip，Windows 自带解压即可，不需要额外安装压缩工具。
 
 ## 许可证
 
