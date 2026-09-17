@@ -3818,8 +3818,12 @@ describe("LiteServerApp", () => {
       expect(state.state.sources[started.browserSource.sourceId].status).toBe("available");
       await postJson(`${baseUrl}/api/sessions/${started.session.sessionId}/end`, { tailDisposition: "not-recording" });
     } finally {
-      server.close();
-      await rm(root, { recursive: true, force: true });
+      // Release the data-root lock before deleting the directory: the lock file stays open until
+      // app.close() runs, and Windows then fails the rmdir with EBUSY (observed on CI runners that
+      // release handles more slowly than a developer machine).
+      await app.close();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   });
 
